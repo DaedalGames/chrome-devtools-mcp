@@ -305,9 +305,9 @@ search for config files, for example in tests. A config file passed via
 
 Pass `--watchConfig` to reload the config file whenever it changes. Watching is
 off by default. On a change, the server re-reads the file, updates the list of
-available tools, and notifies the MCP client with `notifications/tools/list_changed`.
-If the new file is invalid, the server logs the error to stderr and keeps the
-previous configuration.
+available tools, and notifies the MCP client with
+`notifications/tools/list_changed`. If the new file is invalid, the server logs
+the error to stderr and keeps the previous configuration.
 
 Tool categories and tool-specific options apply immediately. Options that
 configure the browser, such as `headless`, `channel`, `viewport`, or

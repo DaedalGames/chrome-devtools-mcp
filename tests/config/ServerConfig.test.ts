@@ -389,5 +389,17 @@ describe('ServerConfig', () => {
         'blockedUrlPattern',
       ]);
     });
+
+    it('ignores restart-required options whose defaults are derived from other options', () => {
+      const previous = parseConfig(['--viaCli']);
+      const next = parseConfig([
+        '--viaCli',
+        '--browserUrl=http://127.0.0.1:9222',
+      ]);
+
+      assert.deepStrictEqual(previous.getRestartRequiredChanges(next), [
+        'browserUrl',
+      ]);
+    });
   });
 });

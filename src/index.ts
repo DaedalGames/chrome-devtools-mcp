@@ -181,6 +181,10 @@ export class McpServer {
    */
   async applyConfig(config: ServerConfig): Promise<void> {
     using guard = await this.#toolMutex.acquire();
+    await this.#applyConfigLocked(config);
+  }
+
+  async #applyConfigLocked(config: ServerConfig): Promise<void> {
     const previousArgs = this.#config.resolved;
     const nextConfig = this.#config.mergeReloadable(config);
     const nextArgs = nextConfig.resolved;
@@ -233,20 +237,31 @@ export class McpServer {
     this.#configWatcher?.dispose();
     this.#configWatcher = undefined;
     const watcher = new ConfigWatcher(configPath, () =>
-      this.#reloadConfig(configPath, reload),
+      this.#reloadConfig(watcher, configPath, reload),
     );
-    watcher.start();
+    try {
+      watcher.start();
+    } catch (err) {
+      watcher.dispose();
+      console.error(`Failed to watch ${configPath}: ${getErrorMessage(err)}`);
+      return;
+    }
     this.#configWatcher = watcher;
   }
 
   async #reloadConfig(
+    watcher: ConfigWatcher,
     configPath: string,
     reload: () => ServerConfig,
   ): Promise<void> {
+    using guard = await this.#toolMutex.acquire();
+    if (this.#configWatcher !== watcher) {
+      return;
+    }
     let config: ServerConfig;
     try {
       config = reload();
-      await this.applyConfig(config);
+      await this.#applyConfigLocked(config);
     } catch (err) {
       console.error(
         `Keeping the previous configuration, failed to reload ${configPath}: ${getErrorMessage(err)}`,

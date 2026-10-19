@@ -318,6 +318,8 @@ export class ServerConfig implements ReadonlyServerConfig {
       if (
         isMcpOptionKey(name) &&
         !isReloadableOption(name) &&
+        (!isDeepStrictEqual(this.#fileArgs[name], next.#fileArgs[name]) ||
+          !isDeepStrictEqual(this.#cliArgs[name], next.#cliArgs[name])) &&
         !isDeepStrictEqual(this.#resolved[name], next.#resolved[name])
       ) {
         changed.push(name);

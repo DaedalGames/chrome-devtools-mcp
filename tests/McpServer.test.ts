@@ -545,10 +545,7 @@ describe('McpServer', () => {
   });
 
   describe('watchConfig', () => {
-    async function watchTestServer(
-      configPath: string,
-      extraArgs: string[] = [],
-    ) {
+    async function watchTestServer(configPath: string) {
       let watchListener: fs.WatchListener<string> | undefined;
       const watchStub = sinon
         .stub(fs, 'watch')
@@ -564,7 +561,7 @@ describe('McpServer', () => {
           ) => {
             assert.ok(listener);
             watchListener = listener;
-            return watchStub.wrappedMethod(filename, listener).unref();
+            return watchStub.wrappedMethod(filename, () => {}).unref();
           },
         );
       const clock = sinon.useFakeTimers({
@@ -573,7 +570,6 @@ describe('McpServer', () => {
       const {server, context, config, configParser} = await createTestServer([
         '--config',
         configPath,
-        ...extraArgs,
       ]);
       server.watchConfig(() => configParser.reloadConfig());
 
@@ -606,6 +602,27 @@ describe('McpServer', () => {
       sinon.assert.calledOnceWithExactly(
         consoleError,
         '--watchConfig has no effect because no config file was found.',
+      );
+    });
+
+    it('logs an error and disposes the watcher when starting the watcher fails', async () => {
+      using configFile = createTempFile('{}', 'cd4a.watch.error.json');
+      sinon
+        .stub(ConfigWatcher.prototype, 'start')
+        .throws(new Error('watch limit reached'));
+      const disposeStub = sinon.stub(ConfigWatcher.prototype, 'dispose');
+      const {server, configParser} = await createTestServer([
+        '--config',
+        configFile.path,
+      ]);
+      const consoleError = sinon.stub(console, 'error');
+
+      server.watchConfig(() => configParser.reloadConfig());
+
+      sinon.assert.calledOnceWithExactly(disposeStub);
+      sinon.assert.calledOnceWithExactly(
+        consoleError,
+        `Failed to watch ${configFile.path}: watch limit reached`,
       );
     });
 
@@ -652,6 +669,36 @@ describe('McpServer', () => {
       sinon.assert.notCalled(consoleError);
     });
 
+    it('does not apply a queued reload after the server is closed', async () => {
+      using configFile = createTempFile(
+        JSON.stringify({memoryDebugging: false}),
+        'cd4a.watch.closed.json',
+      );
+      await using watched = await watchTestServer(configFile.path);
+      const {promise: toolBrowser, resolve: releaseToolCall} =
+        Promise.withResolvers<ReturnType<typeof createMockPuppeteerBrowser>>();
+      const {promise: toolEntered, resolve: markToolEntered} =
+        Promise.withResolvers<void>();
+      watched.context.ensureBrowser.onFirstCall().callsFake(async () => {
+        markToolEntered();
+        return await toolBrowser;
+      });
+
+      const toolCall = watched.server.callTool('list_pages');
+      await toolEntered;
+
+      const reloadPromise = watched.updateConfigFile(
+        JSON.stringify({memoryDebugging: true}),
+      );
+      await watched.server.close();
+      releaseToolCall(createMockPuppeteerBrowser());
+      await toolCall;
+      await reloadPromise;
+
+      assert.strictEqual(watched.config.resolved.memoryDebugging, false);
+      sinon.assert.notCalled(watched.context.onConfigChanged);
+    });
+
     it('logs a restart notice when restart-required options change', async () => {
       using configFile = createTempFile(
         JSON.stringify({
@@ -688,23 +735,22 @@ describe('McpServer', () => {
       await using watched = await watchTestServer(configFile.path);
       const consoleError = sinon.stub(console, 'error');
 
-      await watched.updateConfigFile('{invalid json');
+      await watched.updateConfigFile('[]');
 
       assert.strictEqual(watched.config.resolved.memoryDebugging, true);
       sinon.assert.notCalled(watched.context.onConfigChanged);
-      sinon.assert.calledOnceWithMatch(
+      sinon.assert.calledOnceWithExactly(
         consoleError,
-        new RegExp(
-          `^Keeping the previous configuration, failed to reload .*Invalid JSON config file:`,
-        ),
+        `Keeping the previous configuration, failed to reload ${configFile.path}: Invalid JSON config file: Config must be a JSON object`,
       );
     });
 
     it('keeps the previous configuration when reloaded options conflict with startup options', async () => {
-      using configFile = createTempFile('{}', 'cd4a.watch.conflict.json');
-      await using watched = await watchTestServer(configFile.path, [
-        '--browserUrl=http://127.0.0.1:9222',
-      ]);
+      using configFile = createTempFile(
+        JSON.stringify({browserUrl: 'http://127.0.0.1:9222'}),
+        'cd4a.watch.conflict.json',
+      );
+      await using watched = await watchTestServer(configFile.path);
       const consoleError = sinon.stub(console, 'error');
 
       await watched.updateConfigFile(JSON.stringify({categoryPwa: true}));
