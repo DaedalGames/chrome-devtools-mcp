@@ -350,4 +350,44 @@ describe('ServerConfig', () => {
       assert.strictEqual(readonlyView.resolved.headless, true);
     });
   });
+
+  describe('getRestartRequiredChanges', () => {
+    it('ignores reloadable option changes', () => {
+      const previous = parseConfig();
+      const next = parseConfig([
+        '--memoryDebugging',
+        '--no-category-network',
+        '--slim',
+      ]);
+
+      assert.deepStrictEqual(previous.getRestartRequiredChanges(next), []);
+    });
+
+    it('returns restart-required options that changed', () => {
+      const previous = parseConfig();
+      const next = parseConfig([
+        '--headless',
+        '--categoryExtensions',
+        '--memoryDebugging',
+      ]);
+
+      assert.deepStrictEqual(previous.getRestartRequiredChanges(next), [
+        'categoryExtensions',
+        'headless',
+      ]);
+    });
+
+    it('compares restart-required array and object options by value', () => {
+      const previous = parseConfig([
+        '--blockedUrlPattern=https://example.com/*',
+      ]);
+      const same = parseConfig(['--blockedUrlPattern=https://example.com/*']);
+      const changed = parseConfig(['--blockedUrlPattern=https://other.com/*']);
+
+      assert.deepStrictEqual(previous.getRestartRequiredChanges(same), []);
+      assert.deepStrictEqual(previous.getRestartRequiredChanges(changed), [
+        'blockedUrlPattern',
+      ]);
+    });
+  });
 });

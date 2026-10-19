@@ -15,7 +15,9 @@ import sinon from 'sinon';
 
 import {BrowserManager} from '../src/BrowserManager.js';
 import {getOffByDefaultCategories} from '../src/config/category-options.js';
+import {ConfigLocator} from '../src/config/ConfigLocator.js';
 import {ConfigParser} from '../src/config/ConfigParser.js';
+import {ConfigWatcher} from '../src/config/ConfigWatcher.js';
 import {mcpOptions} from '../src/config/mcp-options.js';
 import {McpServer} from '../src/index.js';
 import {McpContext} from '../src/McpContext.js';
@@ -31,10 +33,22 @@ describe('McpServer', () => {
     ClearcutLogger.resetForTesting();
   });
 
+  function createConfigParser(argv: string[] = []) {
+    const locator = new ConfigLocator();
+    sinon.stub(locator, 'locate').returns(undefined);
+    return new ConfigParser(
+      '1.0.0',
+      ['node', 'script.js', ...argv],
+      {
+        CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS: 'true',
+      },
+      false,
+      locator,
+    );
+  }
+
   function parseConfig(argv: string[] = []) {
-    return new ConfigParser('1.0.0', ['node', 'script.js', ...argv], {
-      CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS: 'true',
-    }).parseConfig();
+    return createConfigParser(argv).parseConfig();
   }
 
   async function createTestServer(
@@ -52,9 +66,10 @@ describe('McpServer', () => {
       sinon.stub(McpContext, 'create').returns(context);
     }
 
-    const config = parseConfig(extraArgs);
+    const configParser = createConfigParser(extraArgs);
+    const config = configParser.parseConfig();
     const server = await McpServer.from(config, {browserManager});
-    return {server, browserManager, context, config};
+    return {server, browserManager, context, config, configParser};
   }
 
   async function connectClient(server: McpServer): Promise<Client> {
@@ -526,6 +541,180 @@ describe('McpServer', () => {
 
       sinon.assert.notCalled(browserManager.ensureBrowser);
       await server.close();
+    });
+  });
+
+  describe('watchConfig', () => {
+    async function watchTestServer(
+      configPath: string,
+      extraArgs: string[] = [],
+    ) {
+      let watchListener: fs.WatchListener<string> | undefined;
+      const watchStub = sinon
+        .stub(fs, 'watch')
+        .callsFake(
+          (
+            filename: fs.PathLike,
+            options?:
+              | fs.WatchOptions
+              | BufferEncoding
+              | fs.WatchListener<string>
+              | null,
+            listener?: fs.WatchListener<string>,
+          ) => {
+            assert.ok(listener);
+            watchListener = listener;
+            return watchStub.wrappedMethod(filename, listener).unref();
+          },
+        );
+      const clock = sinon.useFakeTimers({
+        toFake: ['setTimeout', 'clearTimeout'],
+      });
+      const {server, context, config, configParser} = await createTestServer([
+        '--config',
+        configPath,
+        ...extraArgs,
+      ]);
+      server.watchConfig(() => configParser.reloadConfig());
+
+      async function updateConfigFile(content: string) {
+        fs.writeFileSync(configPath, content);
+        assert.ok(watchListener);
+        watchListener('change', path.basename(configPath));
+        await clock.tickAsync(200);
+      }
+
+      return {
+        server,
+        context,
+        config,
+        updateConfigFile,
+        async [Symbol.asyncDispose]() {
+          await server.close();
+        },
+      };
+    }
+
+    it('does not start a watcher when no config file was resolved', async () => {
+      const startStub = sinon.stub(ConfigWatcher.prototype, 'start');
+      const {server, configParser} = await createTestServer();
+      const consoleError = sinon.stub(console, 'error');
+
+      server.watchConfig(() => configParser.reloadConfig());
+
+      sinon.assert.notCalled(startStub);
+      sinon.assert.calledOnceWithExactly(
+        consoleError,
+        '--watchConfig has no effect because no config file was found.',
+      );
+    });
+
+    it('disposes the previous watcher when called again and on close', async () => {
+      using configFile = createTempFile('{}', 'cd4a.watch.lifecycle.json');
+      const startStub = sinon.stub(ConfigWatcher.prototype, 'start');
+      const disposeStub = sinon.stub(ConfigWatcher.prototype, 'dispose');
+      const {server, configParser} = await createTestServer([
+        '--config',
+        configFile.path,
+      ]);
+
+      server.watchConfig(() => configParser.reloadConfig());
+      sinon.assert.calledOnceWithExactly(startStub);
+      sinon.assert.notCalled(disposeStub);
+
+      server.watchConfig(() => configParser.reloadConfig());
+      sinon.assert.calledTwice(startStub);
+      sinon.assert.calledOnceWithExactly(disposeStub);
+
+      await server.close();
+      sinon.assert.calledTwice(disposeStub);
+
+      await server.close();
+      sinon.assert.calledTwice(disposeStub);
+    });
+
+    it('applies reloadable config changes when the config file changes', async () => {
+      using configFile = createTempFile(
+        JSON.stringify({memoryDebugging: false}),
+        'cd4a.watch.reloadable.json',
+      );
+      await using watched = await watchTestServer(configFile.path);
+      const consoleError = sinon.stub(console, 'error');
+
+      await watched.updateConfigFile(JSON.stringify({memoryDebugging: true}));
+
+      assert.strictEqual(watched.config.resolved.memoryDebugging, true);
+      assert.ok(
+        (await listServerToolNames(watched.server)).includes(
+          'get_heapsnapshot_summary',
+        ),
+      );
+      sinon.assert.notCalled(consoleError);
+    });
+
+    it('logs a restart notice when restart-required options change', async () => {
+      using configFile = createTempFile(
+        JSON.stringify({
+          headless: false,
+          memoryDebugging: false,
+        }),
+        'cd4a.watch.restart.json',
+      );
+      await using watched = await watchTestServer(configFile.path);
+      const consoleError = sinon.stub(console, 'error');
+
+      await watched.updateConfigFile(
+        JSON.stringify({
+          headless: true,
+          memoryDebugging: true,
+          categoryExtensions: true,
+        }),
+      );
+
+      assert.strictEqual(watched.config.resolved.memoryDebugging, true);
+      assert.strictEqual(watched.config.resolved.headless, false);
+      assert.strictEqual(watched.config.resolved.categoryExtensions, undefined);
+      sinon.assert.calledOnceWithExactly(
+        consoleError,
+        `Restart chrome-devtools-mcp to fully apply changes to --categoryExtensions, --headless from ${configFile.path}.`,
+      );
+    });
+
+    it('keeps the previous configuration when reloading the config file fails', async () => {
+      using configFile = createTempFile(
+        JSON.stringify({memoryDebugging: true}),
+        'cd4a.watch.invalid.json',
+      );
+      await using watched = await watchTestServer(configFile.path);
+      const consoleError = sinon.stub(console, 'error');
+
+      await watched.updateConfigFile('{invalid json');
+
+      assert.strictEqual(watched.config.resolved.memoryDebugging, true);
+      sinon.assert.notCalled(watched.context.onConfigChanged);
+      sinon.assert.calledOnceWithMatch(
+        consoleError,
+        new RegExp(
+          `^Keeping the previous configuration, failed to reload .*Invalid JSON config file:`,
+        ),
+      );
+    });
+
+    it('keeps the previous configuration when reloaded options conflict with startup options', async () => {
+      using configFile = createTempFile('{}', 'cd4a.watch.conflict.json');
+      await using watched = await watchTestServer(configFile.path, [
+        '--browserUrl=http://127.0.0.1:9222',
+      ]);
+      const consoleError = sinon.stub(console, 'error');
+
+      await watched.updateConfigFile(JSON.stringify({categoryPwa: true}));
+
+      assert.strictEqual(watched.config.resolved.categoryPwa, undefined);
+      sinon.assert.notCalled(watched.context.onConfigChanged);
+      sinon.assert.calledOnceWithExactly(
+        consoleError,
+        `Keeping the previous configuration, failed to reload ${configFile.path}: Arguments categoryPwa and browserUrl are mutually exclusive`,
+      );
     });
   });
 });
