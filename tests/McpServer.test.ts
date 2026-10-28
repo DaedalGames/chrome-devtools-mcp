@@ -156,7 +156,11 @@ describe('McpServer', () => {
         ],
         [
           {pageId: 1, viewport: '0x0'},
-          /^Input validation error: Invalid arguments for tool emulate: viewport: Invalid viewport width "0"\./,
+          /^Input validation error: Invalid arguments for tool emulate: viewport\.width: Too small: expected number to be >0/,
+        ],
+        [
+          {pageId: 1, viewport: '1280.5x720'},
+          /^Input validation error: Invalid arguments for tool emulate: viewport\.width: Expected integer width/,
         ],
         [
           {pageId: 1, extraHttpHeaders: 'notjson'},

@@ -80,6 +80,22 @@ describe('emulation', () => {
         assert.throws(() => viewportTransform('800x0'));
       });
 
+      it('throws when width or height is not an integer', () => {
+        assert.throws(() => viewportTransform('1280.5x720'), /integer width/);
+        assert.throws(() => viewportTransform('1280x720.5'), /integer height/);
+      });
+
+      it('accepts integer dimensions written with a trailing decimal point', () => {
+        assert.deepStrictEqual(viewportTransform('1280.0x720.x1.5'), {
+          width: 1280,
+          height: 720,
+          deviceScaleFactor: 1.5,
+          isMobile: false,
+          hasTouch: false,
+          isLandscape: false,
+        });
+      });
+
       it('throws when devicePixelRatio is not positive', () => {
         assert.throws(() => viewportTransform('1024x768x0'));
       });
@@ -559,9 +575,27 @@ describe('emulation', () => {
 
       const viewportResult = schema.safeParse({pageId: 1, viewport: '0x0'});
       assert.strictEqual(viewportResult.success, false);
+      assert.deepStrictEqual(viewportResult.error.issues[0].path, [
+        'viewport',
+        'width',
+      ]);
       assert.strictEqual(
         viewportResult.error.issues[0].message,
-        'Invalid viewport width "0". Expected format \'<width>x<height>x<devicePixelRatio>[,mobile][,touch][,landscape]\' with a positive width.',
+        'Too small: expected number to be >0',
+      );
+
+      const fractionalViewportResult = schema.safeParse({
+        pageId: 1,
+        viewport: '1280.5x720',
+      });
+      assert.strictEqual(fractionalViewportResult.success, false);
+      assert.deepStrictEqual(fractionalViewportResult.error.issues[0].path, [
+        'viewport',
+        'width',
+      ]);
+      assert.strictEqual(
+        fractionalViewportResult.error.issues[0].message,
+        'Expected integer width',
       );
 
       const invalidJsonResult = schema.safeParse({
