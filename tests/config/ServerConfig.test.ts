@@ -116,6 +116,42 @@ describe('ServerConfig', () => {
       });
     }
 
+    it('uses CHROME_DEVTOOLS_MCP_TEST_CHROME_PATH when executablePath and channel are not explicitly set', () => {
+      const args = ServerConfig.applyDefaults(
+        {},
+        {env: {CHROME_DEVTOOLS_MCP_TEST_CHROME_PATH: '/opt/test-chrome'}},
+      );
+      assert.strictEqual(args.executablePath, '/opt/test-chrome');
+      assert.strictEqual(args.channel, undefined);
+    });
+
+    it('ignores CHROME_DEVTOOLS_MCP_TEST_CHROME_PATH when executablePath is explicitly set', () => {
+      const args = ServerConfig.applyDefaults(
+        {executablePath: '/custom/chrome'},
+        {env: {CHROME_DEVTOOLS_MCP_TEST_CHROME_PATH: '/opt/test-chrome'}},
+      );
+      assert.strictEqual(args.executablePath, '/custom/chrome');
+      assert.strictEqual(args.channel, undefined);
+    });
+
+    it('ignores CHROME_DEVTOOLS_MCP_TEST_CHROME_PATH when channel is explicitly set', () => {
+      const args = ServerConfig.applyDefaults(
+        {channel: 'canary'},
+        {env: {CHROME_DEVTOOLS_MCP_TEST_CHROME_PATH: '/opt/test-chrome'}},
+      );
+      assert.strictEqual(args.executablePath, undefined);
+      assert.strictEqual(args.channel, 'canary');
+    });
+
+    it('ignores CHROME_DEVTOOLS_MCP_TEST_CHROME_PATH when connecting to an existing browser', () => {
+      const args = ServerConfig.applyDefaults(
+        {autoConnect: true},
+        {env: {CHROME_DEVTOOLS_MCP_TEST_CHROME_PATH: '/opt/test-chrome'}},
+      );
+      assert.strictEqual(args.executablePath, undefined);
+      assert.strictEqual(args.channel, 'stable');
+    });
+
     it('applies viaCli defaults when launching a browser', () => {
       const args = ServerConfig.applyDefaults(
         {

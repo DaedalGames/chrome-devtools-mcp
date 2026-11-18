@@ -1390,7 +1390,7 @@ export function createMockParsedArguments(
 ): ParsedArguments {
   const defaultArgs = ServerConfig.applyDefaults(
     {},
-    {suppressUsageStatisticsNotice: true},
+    {env: {}, suppressUsageStatisticsNotice: true},
   );
   return {...defaultArgs, ...stripUndefined(options)};
 }

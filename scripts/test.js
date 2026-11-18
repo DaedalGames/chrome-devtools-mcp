@@ -218,7 +218,12 @@ async function runTests(attempt) {
       env: {
         ...process.env,
         ...(defaultChromeExecutable
-          ? {PUPPETEER_EXECUTABLE_PATH: defaultChromeExecutable}
+          ? {
+              PUPPETEER_EXECUTABLE_PATH: defaultChromeExecutable,
+              CHROME_DEVTOOLS_MCP_TEST_CHROME_PATH:
+                process.env['CHROME_DEVTOOLS_MCP_TEST_CHROME_PATH'] ??
+                defaultChromeExecutable,
+            }
           : {}),
         CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS: 'true',
         CHROME_DEVTOOLS_MCP_CRASH_ON_UNCAUGHT: 'true',

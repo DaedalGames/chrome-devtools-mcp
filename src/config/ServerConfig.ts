@@ -182,6 +182,16 @@ export class ServerConfig implements ReadonlyServerConfig {
 
     // `channel` only applies when Chrome is launched by channel. Leaving it
     // unset otherwise keeps it out of telemetry (computeFlagUsage).
+    if (
+      !resolvedArgs.browserUrl &&
+      !resolvedArgs.wsEndpoint &&
+      !resolvedArgs.autoConnect &&
+      explicitArgs.executablePath === undefined &&
+      explicitArgs.channel === undefined &&
+      env['CHROME_DEVTOOLS_MCP_TEST_CHROME_PATH']
+    ) {
+      resolvedArgs.executablePath = env['CHROME_DEVTOOLS_MCP_TEST_CHROME_PATH'];
+    }
     const launchesByChannel =
       !resolvedArgs.browserUrl &&
       !resolvedArgs.wsEndpoint &&
