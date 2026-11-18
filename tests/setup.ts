@@ -12,6 +12,35 @@ import sinon from 'sinon';
 // This module runs for every test file, so it must not import src code. Test
 // files that use DevTools import tests/setupDevTools.ts.
 
+const DEFAULT_UNFAKED_TIMERS: Array<
+  'setImmediate' | 'clearImmediate' | 'nextTick'
+> = ['setImmediate', 'clearImmediate', 'nextTick'];
+
+// Leave `setImmediate` and `nextTick` unfaked by default so `node:test`
+// does not stall between tests.
+const originalUseFakeTimers = sinon.useFakeTimers.bind(sinon);
+sinon.useFakeTimers = (
+  config?: Parameters<typeof sinon.useFakeTimers>[0],
+): sinon.SinonFakeTimers => {
+  if (
+    config === undefined ||
+    typeof config === 'number' ||
+    config instanceof Date
+  ) {
+    return originalUseFakeTimers({
+      ...(config !== undefined ? {now: config} : {}),
+      toNotFake: DEFAULT_UNFAKED_TIMERS,
+    });
+  }
+  if (!config.toFake && !config.toNotFake) {
+    return originalUseFakeTimers({
+      ...config,
+      toNotFake: DEFAULT_UNFAKED_TIMERS,
+    });
+  }
+  return originalUseFakeTimers(config);
+};
+
 // Root-level hooks are inherited by every test in the file, so one hook
 // restores all Sinon stubs, spies, and fake timers after each test.
 afterEach(() => {

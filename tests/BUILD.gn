@@ -66,6 +66,7 @@ ts_library("tests") {
     "processors/HeapSnapshotManager.test.ts",
     "roots.test.ts",
     "server.ts",
+    "setup.test.ts",
     "setup.ts",
     "setupDevTools.ts",
     "shutdown.test.ts",
