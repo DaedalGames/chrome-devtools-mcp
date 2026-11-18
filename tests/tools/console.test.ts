@@ -8,13 +8,15 @@ import assert from 'node:assert';
 import path from 'node:path';
 import {before, describe, it} from 'node:test';
 
-import type {Dialog} from 'puppeteer-core';
-
 import type {ParsedArguments} from '../../src/config/mcp-options.js';
 import {loadIssueDescriptions} from '../../src/devtools/issueDescriptions.js';
 import {McpResponse} from '../../src/McpResponse.js';
 import {TextSnapshot} from '../../src/TextSnapshot.js';
-import {DevTools, type CdpWebWorker} from '../../src/third_party/browser.js';
+import {
+  DevTools,
+  type CdpWebWorker,
+  type Dialog,
+} from '../../src/third_party/browser.js';
 import {
   getConsoleMessage,
   listConsoleMessages,
